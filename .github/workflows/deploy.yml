@@ -1,0 +1,33 @@
+name: SAP Integration Suite CI/CD
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+
+  validate:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout Repository
+
+        uses: actions/checkout@v4
+
+      - name: Display Message
+
+        run: |
+
+          echo "SAP Integration Suite CI/CD Started"
+
+      - name: Display Repository
+
+        run: |
+
+          pwd
+
+          ls -la
