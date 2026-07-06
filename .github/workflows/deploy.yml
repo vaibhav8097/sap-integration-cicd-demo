@@ -44,7 +44,7 @@ jobs:
         host_url = os.environ['BTP_API_URL'].rstrip('/')
 
         iflow_id = "HelloWorld"
-        package_id = "DevOpsDemo"  # तुमचा अचूक आणि काम करणारा पॅकेज आयडी
+        package_id = "DevOpsDemo"  
         file_path = f"backup/artifacts/{iflow_id}.zip"
 
         if not os.path.exists(file_path):
@@ -77,21 +77,21 @@ jobs:
         else:
             print("No old artifact found. Ready for clean creation.")
 
-        # ---- STEP B: एकाच POST कॉलमध्ये कंटेनर आणि Base64 ZIP डेटा अपलोड करणे ----
-        print(f"3. Uploading fresh iFlow via Base64 JSON payload to Package '{package_id}'...")
+        # ---- STEP B: एकाच POST कॉलमध्ये अचूक SAP CPI पेलोडसह अपलोड करणे ----
+        print(f"3. Uploading fresh iFlow via Official OData JSON payload to Package '{package_id}'...")
         upload_url = f"{host_url}/api/v1/IntegrationPackages('{package_id}')/IntegrationDesigntimeArtifacts"
         
         with open(file_path, 'rb') as f:
             zip_binary = f.read()
-            # ZIP फाईलला Base64 मध्ये कन्व्हर्ट करणे
             base64_file = base64.b64encode(zip_binary).decode('utf-8')
 
-        # SAP CPI चा अधिकृत सिंगल-शॉट पेलोड (यात 'Value' मध्ये थेट कोड जातो)
+        # SAP CPI चा १००% अचूक आणि अधिकृत सिंगल-शॉट पेलोड सिंटॅक्स
         create_payload = {
             "Id": iflow_id,
             "Name": iflow_id,
             "PackageId": package_id,
-            "Value": base64_file  # <--- इथून थेट फाईल आत जाईल, PUT ची गरज नाही!
+            "XValue": base64_file,     # SAP या कीवर्डमध्ये बायनरी डेटा स्वीकारतो
+            "NoOfArtifacts": 1         # हा पॅरामीटर 'XValue' ला व्हॅलिडेट करण्यासाठी आवश्यक आहे
         }
         
         create_headers = {
