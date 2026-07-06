@@ -1,120 +1,34 @@
-name: Deploy iFlow to SAP CPI
+name: Deploy HelloWorld iFlow
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
-  cpi-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+      - name: Get OAuth Token
+        id: auth
+        env:
+          CLIENT_ID: ${{ secrets.BTP_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.BTP_CLIENT_SECRET }}
+          TOKEN_URL: ${{ secrets.BTP_TOKEN_URL }}
+          API_URL: ${{ secrets.BTP_API_URL }}
+        run: |
+          RESPONSE=$(curl -s \
+            -u "$CLIENT_ID:$CLIENT_SECRET" \
+            -X POST \
+            "$TOKEN_URL?grant_type=client_credentials")
 
-    - name: Setup Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.x'
+          TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
+          echo "TOKEN=$TOKEN" >> $GITHUB_ENV
 
-    - name: Install Dependencies
-      run: pip install requests
-
-    - name: Upload and Deploy Artifact
-      env:
-        BTP_CLIENT_ID: ${{ secrets.BTP_CLIENT_ID }}
-        BTP_CLIENT_SECRET: ${{ secrets.BTP_CLIENT_SECRET }}
-        BTP_TOKEN_URL: ${{ secrets.BTP_TOKEN_URL }}
-        BTP_API_URL: ${{ secrets.BTP_API_URL }}
-      shell: python
-      run: |
-        import os
-        import requests
-        import base64
-        from requests.auth import HTTPBasicAuth
-
-        client_id = os.environ['BTP_CLIENT_ID']
-        client_secret = os.environ['BTP_CLIENT_SECRET']
-        token_url = os.environ['BTP_TOKEN_URL']
-        host_url = os.environ['BTP_API_URL'].rstrip('/')
-
-        iflow_id = "HelloWorld"
-        package_id = "DevOpsDemo"  
-        file_path = f"backup/artifacts/{iflow_id}.zip"
-
-        if not os.path.exists(file_path):
-            print(f"Error: {file_path} फाईल सापडली नाही!")
-            exit(1)
-
-        print("1. Fetching OAuth Token...")
-        token_response = requests.post(token_url, data={'grant_type': 'client_credentials'}, auth=HTTPBasicAuth(client_id, client_secret))
-        token_response.raise_for_status()
-        access_token = token_response.json()['access_token']
-        
-        headers_base = {
-            'Authorization': f'Bearer {access_token}',
-            'Accept': 'application/json'
-        }
-
-        # ---- STEP A: जुना iFlow डिलीट करणे ----
-        print(f"2. Checking and Deleting existing '{iflow_id}'...")
-        check_url = f"{host_url}/api/v1/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='active')"
-        check_res = requests.get(check_url, headers=headers_base)
-        
-        if check_res.status_code == 200:
-            print(f"Artifact found. Deleting '{iflow_id}' to clear space...")
-            delete_res = requests.delete(check_url, headers=headers_base)
-            if delete_res.status_code in [200, 202, 204]:
-                print("Successfully deleted the old artifact.")
-            else:
-                print(f"Delete failed: {delete_res.status_code} - {delete_res.text}")
-                exit(1)
-        else:
-            print("No old artifact found. Ready for clean creation.")
-
-        # ---- STEP B: एकाच POST कॉलमध्ये अचूक SAP CPI पेलोडसह अपलोड करणे ----
-        print(f"3. Uploading fresh iFlow via Official OData JSON payload to Package '{package_id}'...")
-        upload_url = f"{host_url}/api/v1/IntegrationPackages('{package_id}')/IntegrationDesigntimeArtifacts"
-        
-        with open(file_path, 'rb') as f:
-            zip_binary = f.read()
-            base64_file = base64.b64encode(zip_binary).decode('utf-8')
-
-        # SAP CPI चा १००% अचूक आणि अधिकृत सिंगल-शॉट पेलोड सिंटॅक्स
-        create_payload = {
-            "Id": iflow_id,
-            "Name": iflow_id,
-            "PackageId": package_id,
-            "XValue": base64_file,     # SAP या कीवर्डमध्ये बायनरी डेटा स्वीकारतो
-            "NoOfArtifacts": 1         # हा पॅरामीटर 'XValue' ला व्हॅलिडेट करण्यासाठी आवश्यक आहे
-        }
-        
-        create_headers = {
-            'Authorization': f'Bearer {access_token}',
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
-        }
-        
-        upload_response = requests.post(upload_url, headers=create_headers, json=create_payload)
-        
-        if upload_response.status_code in [200, 201]:
-            print("Successfully uploaded artifact data to CPI Designtime!")
-        else:
-            print(f"Upload failed: {upload_response.status_code} - {upload_response.text}")
-            exit(1)
-
-        # ---- STEP C: iFlow Runtime वर डिप्लॉय करणे ----
-        print("4. Triggering Deployment to Runtime...")
-        deploy_url = f"{host_url}/api/v1/DeployIntegrationDesigntimeArtifact?Id='{iflow_id}'&Version='active'"
-        deploy_response = requests.post(deploy_url, headers=headers_base)
-        
-        if deploy_response.status_code in [200, 201, 202]:
-            print(f"🚀 Success! iFlow '{iflow_id}' deployment triggered successfully.")
-        else:
-            print(f"Deployment failed: {deploy_response.status_code} - {deploy_response.text}")
-            exit(1)
+      - name: Deploy HelloWorld
+        env:
+          API_URL: ${{ secrets.BTP_API_URL }}
+        run: |
+          curl -X POST \
+          "$API_URL/api/v1/DeployIntegrationDesigntimeArtifact?Id='HelloWorld'&Version='active'" \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Accept: application/json"
