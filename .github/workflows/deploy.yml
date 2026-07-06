@@ -39,7 +39,6 @@ jobs:
       run: |
         import os
         import requests
-        import base64
         from requests.auth import HTTPBasicAuth
 
         client_id = os.environ['BTP_CLIENT_ID']
@@ -47,9 +46,9 @@ jobs:
         token_url = os.environ['BTP_TOKEN_URL']
         host_url = os.environ['BTP_API_URL'].rstrip('/')
 
-        # >>> तुमचे कॉन्फिगरेशन इथे बदला <<<
+        # कॉन्फिगरेशन
         iflow_id = "HelloWorld"
-        package_id = "DevOps_Demo"  # तुमच्या CPI Package चा Technical ID इथे टाका
+        package_id = "DevOps_Demo"  
         file_path = f"backup/artifacts/{iflow_id}.zip"
 
         if not os.path.exists(file_path):
@@ -61,55 +60,62 @@ jobs:
         token_response.raise_for_status()
         access_token = token_response.json()['access_token']
         
-        headers_json = {
+        headers_base = {
             'Authorization': f'Bearer {access_token}',
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
+            'Accept': 'application/json'
         }
 
-        # ---- STEP A: जुना iFlow आधीपासून अस्तित्वात आहे का ते तपासणे आणि डिलीट करणे ----
+        with open(file_path, 'rb') as f:
+            zip_data = f.read()
+
+        # ---- STEP A: iFlow आधीपासून डिझाईन टाईममध्ये आहे का ते चेक करणे ----
         print(f"2. Checking if '{iflow_id}' exists in Designtime...")
         check_url = f"{host_url}/api/v1/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='active')"
-        check_res = requests.get(check_url, headers={'Authorization': f'Bearer {access_token}', 'Accept': 'application/json'})
+        check_res = requests.get(check_url, headers=headers_base)
         
         if check_res.status_code == 200:
-            print(f"Existing artifact found. Deleting '{iflow_id}' to clear conflicts...")
-            delete_res = requests.delete(check_url, headers={'Authorization': f'Bearer {access_token}', 'Accept': 'application/json'})
-            if delete_res.status_code not in [200, 202, 204]:
-                print(f"Warning: Delete status {delete_res.status_code}, trying to proceed anyway.")
+            # जर आधीपासून असेल तर डिलीट न करता थेट ओव्हरराईट (PUT) करणे
+            print(f"Artifact found. Updating/Replacing ZIP content for '{iflow_id}'...")
+            update_url = f"{host_url}/api/v1/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='active')/$value"
+            upload_response = requests.put(update_url, headers={'Authorization': f'Bearer {access_token}'}, data=zip_data)
         else:
-            print("No existing artifact found. Ready for a clean upload.")
-
-        # ---- STEP B: ZIP फाईल Base64 मध्ये कन्व्हर्ट करून JSON द्वारे अपलोड करणे ----
-        print(f"3. Uploading fresh iFlow JSON to Package '{package_id}'...")
-        upload_url = f"{host_url}/api/v1/IntegrationPackages('{package_id}')/IntegrationDesigntimeArtifacts"
+            # जर नसेल तरच नवीन क्रिएट करण्यासाठी POST कॉल करणे
+            print(f"Artifact NOT found. Creating fresh container for '{iflow_id}'...")
+            create_url = f"{host_url}/api/v1/IntegrationPackages('{package_id}')/IntegrationDesigntimeArtifacts"
+            
+            # SAP CPI चा अचूक OData पेलोड स्ट्रक्चर
+            create_payload = {
+                "Id": iflow_id,
+                "Name": iflow_id,
+                "PackageId": package_id,
+                "Version": "1.0.0"
+            }
+            
+            create_res = requests.post(
+                create_url, 
+                headers={'Authorization': f'Bearer {access_token}', 'Accept': 'application/json', 'Content-Type': 'application/json'}, 
+                json=create_payload
+            )
+            
+            if create_res.status_code in [200, 201]:
+                print("Container created successfully. Now pushing ZIP data...")
+                update_url = f"{host_url}/api/v1/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='active')/$value"
+                upload_response = requests.put(update_url, headers={'Authorization': f'Bearer {access_token}'}, data=zip_data)
+            else:
+                print(f"Failed to create container: {create_res.status_code} - {create_res.text}")
+                exit(1)
         
-        with open(file_path, 'rb') as f:
-            zip_binary = f.read()
-            # फाईलचा डेटा Base64 स्ट्रिंगमध्ये बदलणे
-            base64_encoded_file = base64.b64encode(zip_binary).decode('utf-8')
-
-        # SAP CPI ला आवश्यक असणारा अधिकृत OData JSON पेलोड (Payload)
-        payload = {
-            "Id": iflow_id,
-            "Name": iflow_id,
-            "PackageId": package_id,
-            "Version": "1.0.0",
-            "XValue": base64_encoded_file
-        }
-        
-        upload_response = requests.post(upload_url, headers=headers_json, json=payload)
-        
-        if upload_response.status_code in [200, 201]:
-            print("Successfully uploaded artifact to CPI Designtime!")
+        # अपलोड यशस्वी झाले की नाही ते तपासणे
+        if upload_response.status_code in [200, 201, 204]:
+            print("Successfully uploaded/updated artifact data!")
         else:
-            print(f"Upload failed: {upload_response.status_code} - {upload_response.text}")
+            print(f"Upload failed with status {upload_response.status_code}: {upload_response.text}")
             exit(1)
 
-        # ---- STEP C: iFlow Runtime वर डिप्लॉय करणे ----
-        print("4. Triggering Deployment to Runtime...")
+        # ---- STEP B: iFlow Runtime वर डिप्लॉय करणे ----
+        print("3. Triggering Deployment to Runtime...")
         deploy_url = f"{host_url}/api/v1/DeployIntegrationDesigntimeArtifact?Id='{iflow_id}'&Version='active'"
-        deploy_response = requests.post(deploy_url, headers={'Authorization': f'Bearer {access_token}', 'Accept': 'application/json'})
+        deploy_response = requests.post(deploy_url, headers=headers_base)
         
         if deploy_response.status_code in [200, 201, 202]:
             print(f"Success! iFlow '{iflow_id}' deployment triggered successfully.")
