@@ -49,7 +49,7 @@ jobs:
 
         # >>> तुमचे कॉन्फिगरेशन इथे बदला <<<
         iflow_id = "HelloWorld"
-        package_id = "YOUR_PACKAGE_ID_HERE"  # तुमच्या CPI Package चा Technical ID इथे टाका
+        package_id = "DevOps_Demo"  # तुमच्या CPI Package चा Technical ID इथे टाका
         file_path = f"backup/artifacts/{iflow_id}.zip"
 
         if not os.path.exists(file_path):
@@ -93,7 +93,7 @@ jobs:
         payload = {
             "Id": HelloWorld,
             "Name": HelloWorld,
-            "PackageId": DevOps Demo,
+            "PackageId": DevOps_Demo,
             "Version": "1.0.0",
             "XValue": base64_encoded_file
         }
