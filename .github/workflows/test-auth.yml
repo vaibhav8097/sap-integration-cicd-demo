@@ -14,6 +14,6 @@ jobs:
     TOKEN=$(curl -s \
       -u "${{ secrets.BTP_CLIENT_ID }}:${{ secrets.BTP_CLIENT_SECRET }}" \
       -X POST \
-      "${{ secrets.BTP_TOKEN_URL }}?grant_type=client_credentials")
+      "${{ secrets.BTP_TOKEN_URL }}?grant_type=client_credentials"
 
     echo "$TOKEN"
