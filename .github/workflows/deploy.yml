@@ -46,38 +46,64 @@ jobs:
         token_url = os.environ['BTP_TOKEN_URL']
         host_url = os.environ['BTP_API_URL'].rstrip('/')
 
+        # >>> तुमचे कॉन्फिगरेशन इथे बदला <<<
         iflow_id = "HelloWorld"
+        package_id = "YOUR_PACKAGE_ID_HERE"  # तुमच्या CPI Package चा Technical ID इथे टाका
         file_path = f"backup/artifacts/{iflow_id}.zip"
+
+        if not os.path.exists(file_path):
+            print(f"Error: {file_path} फाईल सापडली नाही!")
+            exit(1)
 
         print("1. Fetching OAuth Token...")
         token_response = requests.post(token_url, data={'grant_type': 'client_credentials'}, auth=HTTPBasicAuth(client_id, client_secret))
         token_response.raise_for_status()
         access_token = token_response.json()['access_token']
         
-        # API साठी लागणारे हेडर्स
-        headers_token = {
+        headers_json = {
             'Authorization': f'Bearer {access_token}',
             'Accept': 'application/json'
         }
 
-        print(f"2. Direct Replacing/Updating iFlow '{iflow_id}' in Designtime...")
-        # थेट झिप पाठवण्यासाठी /$value एंडपॉईंट वापरला आहे
-        update_value_url = f"{host_url}/api/v1/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='active')/$value"
+        # ---- STEP A: जुना iFlow आधीपासून अस्तित्वात आहे का ते तपासणे आणि डिलीट करणे ----
+        print(f"2. Checking if '{iflow_id}' exists in Designtime...")
+        check_url = f"{host_url}/api/v1/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='active')"
+        check_res = requests.get(check_url, headers=headers_json)
+        
+        if check_res.status_code == 200:
+            print(f"Existing artifact found. Deleting '{iflow_id}' to clear conflicts...")
+            delete_res = requests.delete(check_url, headers=headers_json)
+            if delete_res.status_code not in [200, 202, 204]:
+                print(f"Warning: Delete status {delete_res.status_code}, trying to proceed anyway.")
+        else:
+            print("No existing artifact found. Ready for a clean upload.")
+
+        # ---- STEP B: नवीन ZIP फाईल फ्रेश अपलोड करणे ----
+        print(f"3. Uploading fresh iFlow ZIP to Package '{package_id}'...")
+        upload_url = f"{host_url}/api/v1/IntegrationPackages('{package_id}')/IntegrationDesigntimeArtifacts"
         
         with open(file_path, 'rb') as f:
             zip_data = f.read()
 
-        upload_response = requests.put(update_value_url, headers={'Authorization': f'Bearer {access_token}'}, data=zip_data)
+        # Multipart form-data मध्ये फाईल मॅप करणे
+        files = {'file': (f"{iflow_id}.zip", zip_data, 'application/zip')}
+        upload_headers = {
+            'Authorization': f'Bearer {access_token}',
+            'Accept': 'application/json'
+        }
         
-        if upload_response.status_code in [200, 204]:
-            print("Successfully Replaced/Updated artifact in CPI!")
+        upload_response = requests.post(upload_url, headers=upload_headers, files=files)
+        
+        if upload_response.status_code in [200, 201]:
+            print("Successfully uploaded artifact to CPI Designtime!")
         else:
-            print(f"Replace failed: {upload_response.status_code} - {upload_response.text}")
+            print(f"Upload failed: {upload_response.status_code} - {upload_response.text}")
             exit(1)
 
-        print("3. Triggering Deployment to Runtime...")
+        # ---- STEP C: iFlow Runtime वर डिप्लॉय करणे ----
+        print("4. Triggering Deployment to Runtime...")
         deploy_url = f"{host_url}/api/v1/DeployIntegrationDesigntimeArtifact?Id='{iflow_id}'&Version='active'"
-        deploy_response = requests.post(deploy_url, headers=headers_token)
+        deploy_response = requests.post(deploy_url, headers=headers_json)
         
         if deploy_response.status_code in [200, 201, 202]:
             print(f"Success! iFlow '{iflow_id}' deployment triggered successfully.")
