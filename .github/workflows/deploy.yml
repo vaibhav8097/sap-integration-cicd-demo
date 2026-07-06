@@ -39,6 +39,7 @@ jobs:
       run: |
         import os
         import requests
+        import base64
         from requests.auth import HTTPBasicAuth
 
         client_id = os.environ['BTP_CLIENT_ID']
@@ -65,60 +66,70 @@ jobs:
             'Accept': 'application/json'
         }
 
-        with open(file_path, 'rb') as f:
-            zip_data = f.read()
-
-        # ---- STEP A: iFlow आधीपासून डिझाईन टाईममध्ये आहे का ते चेक करणे ----
-        print(f"2. Checking if '{iflow_id}' exists in Designtime...")
+        # ---- STEP A: जुना iFlow डिलीट करणे ----
+        print(f"2. Checking and Deleting existing '{iflow_id}'...")
         check_url = f"{host_url}/api/v1/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='active')"
         check_res = requests.get(check_url, headers=headers_base)
         
         if check_res.status_code == 200:
-            # जर आधीपासून असेल तर डिलीट न करता थेट ओव्हरराईट (PUT) करणे
-            print(f"Artifact found. Updating/Replacing ZIP content for '{iflow_id}'...")
-            update_url = f"{host_url}/api/v1/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='active')/$value"
-            upload_response = requests.put(update_url, headers={'Authorization': f'Bearer {access_token}'}, data=zip_data)
-        else:
-            # जर नसेल तरच नवीन क्रिएट करण्यासाठी POST कॉल करणे
-            print(f"Artifact NOT found. Creating fresh container for '{iflow_id}'...")
-            create_url = f"{host_url}/api/v1/IntegrationPackages('{package_id}')/IntegrationDesigntimeArtifacts"
-            
-            # SAP CPI चा अचूक OData पेलोड स्ट्रक्चर
-            create_payload = {
-                "Id": iflow_id,
-                "Name": iflow_id,
-                "PackageId": package_id,
-                "Version": "1.0.0"
-            }
-            
-            create_res = requests.post(
-                create_url, 
-                headers={'Authorization': f'Bearer {access_token}', 'Accept': 'application/json', 'Content-Type': 'application/json'}, 
-                json=create_payload
-            )
-            
-            if create_res.status_code in [200, 201]:
-                print("Container created successfully. Now pushing ZIP data...")
-                update_url = f"{host_url}/api/v1/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='active')/$value"
-                upload_response = requests.put(update_url, headers={'Authorization': f'Bearer {access_token}'}, data=zip_data)
+            print(f"Artifact found. Deleting '{iflow_id}' to clear space...")
+            delete_res = requests.delete(check_url, headers=headers_base)
+            if delete_res.status_code in [200, 202, 204]:
+                print("Successfully deleted the old artifact.")
             else:
-                print(f"Failed to create container: {create_res.status_code} - {create_res.text}")
+                print(f"Delete failed: {delete_res.status_code} - {delete_res.text}")
                 exit(1)
-        
-        # अपलोड यशस्वी झाले की नाही ते तपासणे
-        if upload_response.status_code in [200, 201, 204]:
-            print("Successfully uploaded/updated artifact data!")
         else:
-            print(f"Upload failed with status {upload_response.status_code}: {upload_response.text}")
+            print("No old artifact found. Ready for clean creation.")
+
+        # ---- STEP B: नवीन iFlow कंटेनर आणि ZIP डेटा एकत्र अपलोड करणे (Standard POST) ----
+        print(f"3. Creating and Uploading fresh iFlow to Package '{package_id}'...")
+        upload_url = f"{host_url}/api/v1/IntegrationPackages('{package_id}')/IntegrationDesigntimeArtifacts"
+        
+        with open(file_path, 'rb') as f:
+            zip_binary = f.read()
+            # ZIP फाईलला Base64 मध्ये कन्व्हर्ट करणे
+            base64_file = base64.b64encode(zip_binary).decode('utf-8')
+
+        # SAP CPI च्या अधिकृत नियमांनुसार (OData Specification) नवीन आयटमसाठी हा पेलोड लागतो:
+        # यामध्ये फाईल डेटा पाठवण्यासाठी 'XValue' ऐवji 'Value' किंवा ठराविक सिस्टीममध्ये थेट बायनरी द्यावी लागते, 
+        # पण सर्वोत्कृष्ट मार्ग म्हणजे 'multipart/form-data' शिवाय 'Value' फील्ड वापरणे.
+        create_payload = {
+            "Id": iflow_id,
+            "Name": iflow_id,
+            "PackageId": package_id,
+            "Version": "1.0.0"
+        }
+        
+        # आधी रिकामा कंटेनर बनवूया
+        create_headers = {
+            'Authorization': f'Bearer {access_token}',
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+        }
+        create_res = requests.post(upload_url, headers=create_headers, json=create_payload)
+        
+        if create_res.status_code in [200, 201]:
+            print("Container created successfully! Now injecting ZIP content...")
+            # कंटेनर बनल्यावर लगेच त्यात /$value एंडपॉइंटवर डेटा टाकणे (हा नवीन ऑब्जेक्ट असल्याने इथे PUT नक्की चालेल!)
+            update_value_url = f"{host_url}/api/v1/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='active')/$value"
+            upload_response = requests.put(update_value_url, headers={'Authorization': f'Bearer {access_token}'}, data=zip_binary)
+            
+            if upload_response.status_code not in [200, 201, 204]:
+                print(f"Failed to inject ZIP data: {upload_response.status_code} - {upload_response.text}")
+                exit(1)
+            print("Successfully uploaded artifact data!")
+        else:
+            print(f"Failed to create fresh container: {create_res.status_code} - {create_res.text}")
             exit(1)
 
-        # ---- STEP B: iFlow Runtime वर डिप्लॉय करणे ----
-        print("3. Triggering Deployment to Runtime...")
+        # ---- STEP C: iFlow Runtime वर डिप्लॉय करणे ----
+        print("4. Triggering Deployment to Runtime...")
         deploy_url = f"{host_url}/api/v1/DeployIntegrationDesigntimeArtifact?Id='{iflow_id}'&Version='active'"
         deploy_response = requests.post(deploy_url, headers=headers_base)
         
         if deploy_response.status_code in [200, 201, 202]:
-            print(f"Success! iFlow '{iflow_id}' deployment triggered successfully.")
+            print(f"🚀 Success! iFlow '{iflow_id}' deployment triggered successfully.")
         else:
             print(f"Deployment failed: {deploy_response.status_code} - {deploy_response.text}")
             exit(1)
