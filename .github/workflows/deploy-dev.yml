@@ -1,0 +1,39 @@
+name: Deploy to SAP Integration Suite - DEV
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Read Secrets
+        env:
+          CLIENT_ID: ${{ secrets.BTP_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.BTP_CLIENT_SECRET }}
+          TOKEN_URL: ${{ secrets.BTP_TOKEN_URL }}
+
+        run: |
+          echo "Client ID Exists"
+
+          if [ -z "$CLIENT_ID" ]; then
+            echo "Missing CLIENT_ID"
+            exit 1
+          fi
+
+          if [ -z "$CLIENT_SECRET" ]; then
+            echo "Missing CLIENT_SECRET"
+            exit 1
+          fi
+
+          if [ -z "$TOKEN_URL" ]; then
+            echo "Missing TOKEN_URL"
+            exit 1
+          fi
+
+          echo "All Secrets Found"
