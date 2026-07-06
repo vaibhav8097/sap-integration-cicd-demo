@@ -31,10 +31,10 @@ jobs:
     # 4. SAP CPI मधून iFlows डाऊनलोड करण्याचा स्क्रिप्ट कोड
     - name: Download CPI Artifacts
       env:
-        CPI_CLIENT_ID: ${{ secrets.BTP_CLIENT_ID }}
-        CPI_CLIENT_SECRET: ${{ secrets.BTP_CLIENT_SECRET }}
-        CPI_TOKEN_URL: ${{ secrets.BTP_TOKEN_URL }}
-        CPI_HOST_URL: ${{ secrets.BTP_API_URL }}
+        BTP_CLIENT_ID: ${{ secrets.BTP_CLIENT_ID }}
+        BTP_CLIENT_SECRET: ${{ secrets.BTP_CLIENT_SECRET }}
+        BTP_TOKEN_URL: ${{ secrets.BTP_TOKEN_URL }}
+        BTP_HOST_URL: ${{ secrets.BTP_API_URL }}
       shell: python
       run: |
         import os
