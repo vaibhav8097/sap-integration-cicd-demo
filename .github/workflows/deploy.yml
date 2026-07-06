@@ -1,7 +1,17 @@
-name: Deploy HelloWorld iFlow
+name: Deploy CPI iFlow
 
 on:
   workflow_dispatch:
+    inputs:
+      package_id:
+        description: 'Package ID'
+        required: true
+        default: 'DevOpsDemo'
+
+      iflow_id:
+        description: 'iFlow ID'
+        required: true
+        default: 'HelloWorld'
 
 jobs:
   deploy:
@@ -9,7 +19,6 @@ jobs:
 
     steps:
       - name: Get OAuth Token
-        id: auth
         env:
           CLIENT_ID: ${{ secrets.BTP_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.BTP_CLIENT_SECRET }}
@@ -24,11 +33,14 @@ jobs:
           TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
           echo "TOKEN=$TOKEN" >> $GITHUB_ENV
 
-      - name: Deploy HelloWorld
+      - name: Deploy iFlow
         env:
           API_URL: ${{ secrets.BTP_API_URL }}
+          IFLOW_ID: ${{ github.event.inputs.iflow_id }}
         run: |
+          echo "Deploying $IFLOW_ID"
+
           curl -X POST \
-          "$API_URL/api/v1/DeployIntegrationDesigntimeArtifact?Id='HelloWorld'&Version='active'" \
-          -H "Authorization: Bearer $TOKEN" \
-          -H "Accept: application/json"
+            "$API_URL/api/v1/DeployIntegrationDesigntimeArtifact?Id='$IFLOW_ID'&Version='active'" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/json"
