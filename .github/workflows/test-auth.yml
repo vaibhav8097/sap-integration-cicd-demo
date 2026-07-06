@@ -8,12 +8,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Get OAuth Token
-  run: |
-    TOKEN=$(curl -s \
-      -u "${{ secrets.BTP_CLIENT_ID }}:${{ secrets.BTP_CLIENT_SECRET }}" \
-      -X POST \
-      "${{ secrets.BTP_TOKEN_URL }}?grant_type=client_credentials"
+        run: |
+          TOKEN=$(curl -s \
+            -u "${{ secrets.BTP_CLIENT_ID }}:${{ secrets.BTP_CLIENT_SECRET }}" \
+            -X POST \
+            "${{ secrets.BTP_TOKEN_URL }}?grant_type=client_credentials")
 
-    echo "$TOKEN"
+          echo "$TOKEN"
