@@ -39,6 +39,7 @@ jobs:
       run: |
         import os
         import requests
+        import base64
         from requests.auth import HTTPBasicAuth
 
         client_id = os.environ['BTP_CLIENT_ID']
@@ -62,37 +63,42 @@ jobs:
         
         headers_json = {
             'Authorization': f'Bearer {access_token}',
-            'Accept': 'application/json'
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
         }
 
         # ---- STEP A: जुना iFlow आधीपासून अस्तित्वात आहे का ते तपासणे आणि डिलीट करणे ----
         print(f"2. Checking if '{iflow_id}' exists in Designtime...")
         check_url = f"{host_url}/api/v1/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='active')"
-        check_res = requests.get(check_url, headers=headers_json)
+        check_res = requests.get(check_url, headers={'Authorization': f'Bearer {access_token}', 'Accept': 'application/json'})
         
         if check_res.status_code == 200:
             print(f"Existing artifact found. Deleting '{iflow_id}' to clear conflicts...")
-            delete_res = requests.delete(check_url, headers=headers_json)
+            delete_res = requests.delete(check_url, headers={'Authorization': f'Bearer {access_token}', 'Accept': 'application/json'})
             if delete_res.status_code not in [200, 202, 204]:
                 print(f"Warning: Delete status {delete_res.status_code}, trying to proceed anyway.")
         else:
             print("No existing artifact found. Ready for a clean upload.")
 
-        # ---- STEP B: नवीन ZIP फाईल फ्रेश अपलोड करणे ----
-        print(f"3. Uploading fresh iFlow ZIP to Package '{package_id}'...")
+        # ---- STEP B: ZIP फाईल Base64 मध्ये कन्व्हर्ट करून JSON द्वारे अपलोड करणे ----
+        print(f"3. Uploading fresh iFlow JSON to Package '{package_id}'...")
         upload_url = f"{host_url}/api/v1/IntegrationPackages('{package_id}')/IntegrationDesigntimeArtifacts"
         
         with open(file_path, 'rb') as f:
-            zip_data = f.read()
+            zip_binary = f.read()
+            # फाईलचा डेटा Base64 स्ट्रिंगमध्ये बदलणे
+            base64_encoded_file = base64.b64encode(zip_binary).decode('utf-8')
 
-        # Multipart form-data मध्ये फाईल मॅप करणे
-        files = {'file': (f"{iflow_id}.zip", zip_data, 'application/zip')}
-        upload_headers = {
-            'Authorization': f'Bearer {access_token}',
-            'Accept': 'application/json'
+        # SAP CPI ला आवश्यक असणारा अधिकृत OData JSON पेलोड (Payload)
+        payload = {
+            "Id": HelloWorld,
+            "Name": HelloWorld,
+            "PackageId": DevOps Demo,
+            "Version": "1.0.0",
+            "XValue": base64_encoded_file
         }
         
-        upload_response = requests.post(upload_url, headers=upload_headers, files=files)
+        upload_response = requests.post(upload_url, headers=headers_json, json=payload)
         
         if upload_response.status_code in [200, 201]:
             print("Successfully uploaded artifact to CPI Designtime!")
@@ -103,7 +109,7 @@ jobs:
         # ---- STEP C: iFlow Runtime वर डिप्लॉय करणे ----
         print("4. Triggering Deployment to Runtime...")
         deploy_url = f"{host_url}/api/v1/DeployIntegrationDesigntimeArtifact?Id='{iflow_id}'&Version='active'"
-        deploy_response = requests.post(deploy_url, headers=headers_json)
+        deploy_response = requests.post(deploy_url, headers={'Authorization': f'Bearer {access_token}', 'Accept': 'application/json'})
         
         if deploy_response.status_code in [200, 201, 202]:
             print(f"Success! iFlow '{iflow_id}' deployment triggered successfully.")
