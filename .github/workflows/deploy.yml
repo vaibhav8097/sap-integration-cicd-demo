@@ -1,33 +1,94 @@
-name: SAP Integration Suite CI/CD
+name: Deploy iFlow to SAP CPI
 
 on:
   push:
     branches:
-      - main
-      - master
+      - main # जेव्हा तुम्ही main ब्रांचवर बदल पुश कराल तेव्हा हा जॉब ऑटोमॅटिक सुरू होईल
+  workflow_dispatch: # मॅन्युअली रन करण्याचा पर्याय
+
+permissions:
+  contents: read
 
 jobs:
-
-  validate:
-
+  cpi-deploy:
     runs-on: ubuntu-latest
 
     steps:
+    # 1. Git मधील कोड चेकआऊट करणे
+    - name: Checkout Repository
+      uses: actions/checkout@v4
 
-      - name: Checkout Repository
+    # 2. Python सेट करणे
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
 
-        uses: actions/checkout@v4
+    # 3. 'requests' लायब्ररी इन्स्टॉल करणे
+    - name: Install Dependencies
+      run: pip install requests
 
-      - name: Display Message
+    # 4. SAP CPI मध्ये iFlow अपलोड आणि डिप्लॉय करणे
+    - name: Upload and Deploy Artifact
+      env:
+        BTP_CLIENT_ID: ${{ secrets.BTP_CLIENT_ID }}
+        BTP_CLIENT_SECRET: ${{ secrets.BTP_CLIENT_SECRET }}
+        BTP_TOKEN_URL: ${{ secrets.BTP_TOKEN_URL }}
+        BTP_API_URL: ${{ secrets.BTP_HOST_URL }}
+      shell: python
+      run: |
+        import os
+        import requests
+        from requests.auth import HTTPBasicAuth
 
-        run: |
+        # एन्व्हायर्नमेंट व्हेरिएबल्स लोड करणे
+        client_id = os.environ['BTP_CLIENT_ID']
+        client_secret = os.environ['BTP_CLIENT_SECRET']
+        token_url = os.environ['BTP_TOKEN_URL']
+        host_url = os.environ['BTP_API_URL'].rstrip('/')
 
-          echo "SAP Integration Suite CI/CD Started"
+        # फाईल पाथ आणि iFlow ID (तुमच्या गरजेनुसार बदला)
+        # समजा तुमच्या 'backup/artifacts/' फोल्डरमध्ये 'HelloWorld.zip' आहे
+        iflow_id = "HelloWorld"
+        file_path = f"backup/artifacts/{iflow_id}.zip"
 
-      - name: Display Repository
+        if not os.path.exists(file_path):
+            print(f"Error: {file_path} फाईल सापडली नाही!")
+            exit(1)
 
-        run: |
+        print("1. Fetching OAuth Token...")
+        token_response = requests.post(token_url, data={'grant_type': 'client_credentials'}, auth=HTTPBasicAuth(client_id, client_secret))
+        token_response.raise_for_status()
+        access_token = token_response.json()['access_token']
+        
+        # API साठी लागणारे हेडर्स
+        headers_token = {'Authorization': f'Bearer {access_token}'}
+        headers_json = {'Authorization': f'Bearer {access_token}', 'Accept': 'application/json'}
 
-          pwd
+        print("2. Uploading/Updating iFlow ZIP in CPI Designtime...")
+        # CPI मधील आर्टिफॅक्ट अपडेट करण्यासाठी PUT रिक्वेस्ट
+        upload_url = f"{host_url}/api/v1/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='active')/$value"
+        
+        with open(file_path, 'rb') as f:
+            zip_data = f.read()
+            
+        upload_response = requests.put(upload_url, headers=headers_token, data=zip_data)
+        
+        if upload_response.status_code in [200, 204]:
+            print("Successfully uploaded artifact to CPI!")
+        else:
+            print(f"Upload failed: {upload_response.status_code} - {upload_response.text}")
+            exit(1)
 
-          ls -la
+        print("3. Triggering Deployment to Runtime...")
+        # अपलोड झालेला आयटम Live/Deploy करण्यासाठी POST रिक्वेस्ट
+        deploy_url = f"{host_url}/api/v1/DeployIntegrationDesigntimeArtifact?Id='{iflow_id}'&Version='active'"
+        
+        deploy_response = requests.post(deploy_url, headers=headers_json)
+        
+        # SAP CPI डिप्लॉयमेंट ट्रिगर झाल्यावर HTTP 202 (Accepted) रिस्पॉन्स देतो
+        if deploy_response.status_code in [200, 201, 202]:
+            print(f"Success! iFlow '{iflow_id}' deployment triggered successfully.")
+        else:
+            print(f"Deployment failed: {deploy_response.status_code} - {deploy_response.text}")
+            exit(1)
