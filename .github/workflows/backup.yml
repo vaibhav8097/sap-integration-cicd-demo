@@ -5,6 +5,10 @@ on:
     - cron: '0 0 * * *' # रोज रात्री १२ वाजता (UTC) रन होईल
   workflow_dispatch: # मॅन्युअली रन करण्याचा पर्याय
 
+# >>> हा खालील परमिशन ब्लॉक ॲड करा <<<
+permissions:
+  contents: write
+
 jobs:
   cpi-backup:
     runs-on: ubuntu-latest
@@ -38,10 +42,10 @@ jobs:
         from requests.auth import HTTPBasicAuth
 
         # एन्व्हायर्नमेंट व्हेरिएबल्स मिळवणे
-        client_id = os.environ['CPI_CLIENT_ID']
-        client_secret = os.environ['CPI_CLIENT_SECRET']
-        token_url = os.environ['CPI_TOKEN_URL']
-        host_url = os.environ['CPI_HOST_URL'].rstrip('/')
+        client_id = os.environ['BTP_CLIENT_ID']
+        client_secret = os.environ['BTP_CLIENT_SECRET']
+        token_url = os.environ['BTP_TOKEN_URL']
+        host_url = os.environ['BTP_API_URL'].rstrip('/')
 
         # फोल्डर तयार करणे
         os.makedirs('backup/artifacts', exist_ok=True)
