@@ -8,11 +8,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Get OAuth Token
-        run: |
-          TOKEN=$(curl -s \
-            -u "${{ secrets.BTP_CLIENT_ID }}:${{ secrets.BTP_CLIENT_SECRET }}" \
-            -X POST \
-            "${{ secrets.BTP_TOKEN_URL }}?grant_type=client_credentials")
 
-          echo "$TOKEN"
+      - name: Verify Secrets
+        env:
+          CLIENT_ID: ${{ secrets.BTP_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.BTP_CLIENT_SECRET }}
+          TOKEN_URL: ${{ secrets.BTP_TOKEN_URL }}
+        run: |
+          echo "CLIENT_ID Length = ${#CLIENT_ID}"
+          echo "CLIENT_SECRET Length = ${#CLIENT_SECRET}"
+          echo "TOKEN_URL = $TOKEN_URL"
+
+      - name: Get OAuth Token
+        env:
+          CLIENT_ID: ${{ secrets.BTP_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.BTP_CLIENT_SECRET }}
+          TOKEN_URL: ${{ secrets.BTP_TOKEN_URL }}
+        run: |
+          RESPONSE=$(curl -s \
+            -u "$CLIENT_ID:$CLIENT_SECRET" \
+            -X POST \
+            "$TOKEN_URL?grant_type=client_credentials")
+
+          echo "$RESPONSE"
