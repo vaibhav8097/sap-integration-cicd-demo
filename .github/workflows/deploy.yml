@@ -3,8 +3,8 @@ name: Deploy iFlow to SAP CPI
 on:
   push:
     branches:
-      - main # जेव्हा तुम्ही main ब्रांचवर बदल पुश कराल तेव्हा हा जॉब ऑटोमॅटिक सुरू होईल
-  workflow_dispatch: # मॅन्युअली रन करण्याचा पर्याय
+      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,21 +14,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. Git मधील कोड चेकआऊट करणे
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    # 2. Python सेट करणे
     - name: Setup Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.x'
 
-    # 3. 'requests' लायब्ररी इन्स्टॉल करणे
     - name: Install Dependencies
       run: pip install requests
 
-    # 4. SAP CPI मध्ये iFlow अपलोड आणि डिप्लॉय करणे
     - name: Upload and Deploy Artifact
       env:
         BTP_CLIENT_ID: ${{ secrets.BTP_CLIENT_ID }}
@@ -39,6 +35,7 @@ jobs:
       run: |
         import os
         import requests
+        import base64
         from requests.auth import HTTPBasicAuth
 
         client_id = os.environ['BTP_CLIENT_ID']
@@ -46,9 +43,8 @@ jobs:
         token_url = os.environ['BTP_TOKEN_URL']
         host_url = os.environ['BTP_API_URL'].rstrip('/')
 
-        # कॉन्फिगरेशन
         iflow_id = "HelloWorld"
-        package_id = "DevOpsDemo"  
+        package_id = "DevOpsDemo"  # तुमचा अचूक आणि काम करणारा पॅकेज आयडी
         file_path = f"backup/artifacts/{iflow_id}.zip"
 
         if not os.path.exists(file_path):
@@ -81,18 +77,21 @@ jobs:
         else:
             print("No old artifact found. Ready for clean creation.")
 
-        # ---- STEP B: नवीन iFlow कंटेनर तयार करणे (Version शिवाय) ----
-        print(f"3. Creating fresh iFlow container in Package '{package_id}'...")
+        # ---- STEP B: एकाच POST कॉलमध्ये कंटेनर आणि Base64 ZIP डेटा अपलोड करणे ----
+        print(f"3. Uploading fresh iFlow via Base64 JSON payload to Package '{package_id}'...")
         upload_url = f"{host_url}/api/v1/IntegrationPackages('{package_id}')/IntegrationDesigntimeArtifacts"
         
         with open(file_path, 'rb') as f:
             zip_binary = f.read()
+            # ZIP फाईलला Base64 मध्ये कन्व्हर्ट करणे
+            base64_file = base64.b64encode(zip_binary).decode('utf-8')
 
-        # एरर घालवण्यासाठी इथून 'Version' काढून टाकले आहे
+        # SAP CPI चा अधिकृत सिंगल-शॉट पेलोड (यात 'Value' मध्ये थेट कोड जातो)
         create_payload = {
             "Id": iflow_id,
             "Name": iflow_id,
-            "PackageId": package_id
+            "PackageId": package_id,
+            "Value": base64_file  # <--- इथून थेट फाईल आत जाईल, PUT ची गरज नाही!
         }
         
         create_headers = {
@@ -100,20 +99,13 @@ jobs:
             'Accept': 'application/json',
             'Content-Type': 'application/json'
         }
-        create_res = requests.post(upload_url, headers=create_headers, json=create_payload)
         
-        if create_res.status_code in [200, 201]:
-            print("Container created successfully! Now injecting ZIP content...")
-            # नवीन कंटेनरमध्ये ZIP डेटा पुश करणे
-            update_value_url = f"{host_url}/api/v1/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='active')/$value"
-            upload_response = requests.put(update_value_url, headers={'Authorization': f'Bearer {access_token}'}, data=zip_binary)
-            
-            if upload_response.status_code not in [200, 201, 204]:
-                print(f"Failed to inject ZIP data: {upload_response.status_code} - {upload_response.text}")
-                exit(1)
-            print("Successfully uploaded artifact data!")
+        upload_response = requests.post(upload_url, headers=create_headers, json=create_payload)
+        
+        if upload_response.status_code in [200, 201]:
+            print("Successfully uploaded artifact data to CPI Designtime!")
         else:
-            print(f"Failed to create fresh container: {create_res.status_code} - {create_res.text}")
+            print(f"Upload failed: {upload_response.status_code} - {upload_response.text}")
             exit(1)
 
         # ---- STEP C: iFlow Runtime वर डिप्लॉय करणे ----
