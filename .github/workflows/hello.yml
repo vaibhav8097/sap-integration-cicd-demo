@@ -1,0 +1,31 @@
+name: SAP Integration Suite CI/CD Demo
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  hello:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Display Repository Details
+        run: |
+          echo "SAP Integration Suite CI/CD Pipeline Started"
+          echo "Repository: ${{ github.repository }}"
+          echo "Branch: ${{ github.ref_name }}"
+
+      - name: Verify GitHub Secrets
+        env:
+          BTP_CLIENT_ID: ${{ secrets.BTP_CLIENT_ID }}
+        run: |
+          if [ -z "$BTP_CLIENT_ID" ]; then
+            echo "BTP_CLIENT_ID Secret NOT Found"
+            exit 1
+          else
+            echo "BTP_CLIENT_ID Secret Found"
+          fi
