@@ -1,0 +1,72 @@
+name: SAP CPI Daily Artifact Backup & Lint Check
+
+# रोज रात्री १२ वाजता (UTC) हा जॉब ऑटोमॅटिक रन होईल. तसेच तुम्ही मॅन्युअली पण रन करू शकता.
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch: 
+
+jobs:
+  backup-and-lint:
+    runs-on: ubuntu-latest
+
+    steps:
+    # स्टेप १: तुमची GitHub Repository चेकआऊट करणे
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    # स्टेप २: Node.js सेट करणे (CPI Lint साठी आवश्यक)
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-node: '18'
+
+    # स्टेप ३: CPI Lint टूल इन्स्टॉल करणे
+    - name: Install CPI Lint
+      run: npm install -g cpi-lint
+
+    # स्टेप ४: CPI मधून iFlows डाऊनलोड करणे (Backup)
+    # टीप: यासाठी आपण SAP CPI चे OData API वापरून झिप फाईल डाऊनलोड करतो.
+    - name: Fetch CPI Artifacts (Backup)
+      env:
+        CPI_CLIENT_ID: ${{ secrets.BTP_CLIENT_ID }}
+        CPI_CLIENT_SECRET: ${{ secrets.BTP_CLIENT_SECRET }}
+        CPI_TOKEN_URL: ${{ secrets.BTP_TOKEN_URL }}
+        CPI_TM_URL: ${{ secrets.BTP_API_URL }}
+      run: |
+        echo "Fetching Access Token from SAP BTP..."
+        # 1. OAuth Token मिळवणे
+        TOKEN=$(curl -s -X POST "$CPI_TOKEN_URL?grant_type=client_credentials" \
+          -u "$CPI_CLIENT_ID:$CPI_CLIENT_SECRET" | jq -r '.access_token')
+        
+        echo "Downloading CPI Integration Packages..."
+        # 2. बॅकअप फोल्डर तयार करणे
+        mkdir -p backup/iflows
+        mkdir -p backup/reports
+        
+        # 3. CPI API वरून पॅकेजेस आणि iFlows डाऊनलोड करण्याची कमांड (इथे तुमच्या गरजेनुसार API Endpoint मॉडिफाय करू शकता)
+        # उदाहरणार्थ, API द्वारे झिप फाईल डाऊनलोड करून 'backup/iflows/' मध्ये सेव्ह केली जाईल.
+        curl -s -H "Authorization: Bearer $TOKEN" "$CPI_TM_URL/api/v1/IntegrationPackages" -o backup/iflows/packages.json
+
+    # स्टेप ५: डाऊनलोड केलेल्या iFlows वर CPI Lint रन करणे (Step 03 - Reports Comparison)
+    - name: Run CPI Lint & Generate Report
+      run: |
+        echo "Running CPI Lint Check..."
+        # cpi-lint कमांड रन करून त्याचे रिझल्ट्स 'reports' फोल्डरमध्ये सेव्ह करणे
+        cpi-lint -path backup/iflows/ -format html > backup/reports/cpi_lint_report.html
+
+    # स्टेप ६: बॅकअप घेतलेला कोड आणि रिपोर्ट GitHub मध्ये पुश (Save) करणे
+    - name: Commit and Push Changes
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        
+        git add backup/
+        
+        # जर काही नवीन बदल असतील तरच कमिट होईल, नाहीतर स्कीप होईल
+        if ! git diff-index --quiet HEAD; then
+          git commit -m "Daily Backup and CPI Lint Report - $(date +'%Y-%m-%d')"
+          git push
+        else
+          echo "No changes detected in CPI Artifacts today."
+        fi
