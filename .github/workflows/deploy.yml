@@ -91,9 +91,9 @@ jobs:
 
         # SAP CPI ला आवश्यक असणारा अधिकृत OData JSON पेलोड (Payload)
         payload = {
-            "Id": HelloWorld,
-            "Name": HelloWorld,
-            "PackageId": DevOps_Demo,
+            "Id": iflow_id,
+            "Name": iflow_id,
+            "PackageId": package_id,
             "Version": "1.0.0",
             "XValue": base64_encoded_file
         }
